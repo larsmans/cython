@@ -245,6 +245,11 @@ class __Pyx_FakeReference {
 };
 #endif
 
+#ifndef __cilk
+# define _Cilk_spawn(f) (f) /* We use spawn as if it were a function */
+# define _Cilk_sync
+#endif
+
 /////////////// UtilityFunctionPredeclarations.proto ///////////////
 
 /* unused attribute */

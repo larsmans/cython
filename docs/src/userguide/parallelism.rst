@@ -8,10 +8,12 @@
 Using Parallelism
 **********************************
 
+OpenMP
+======
+
 Cython supports native parallelism through the :py:mod:`cython.parallel`
 module. To use this kind of parallelism, the GIL must be released
 (see :ref:`Releasing the GIL <nogil>`).
-It currently supports OpenMP, but later on more backends might be supported.
 
 .. NOTE:: Functionality in this module may only be used from the main thread
           or parallel regions due to OpenMP restrictions.
@@ -138,7 +140,7 @@ It currently supports OpenMP, but later on more backends might be supported.
        cdef size_t size = 10
 
        with nogil, parallel():
-           local_buf = <int *> malloc(sizeof(int) * size)
+           local_buf = <int * > malloc(sizeof(int) * size)
            if local_buf == NULL:
                abort()
 
@@ -161,7 +163,7 @@ It currently supports OpenMP, but later on more backends might be supported.
     n-1.
 
 Compiling
-=========
+---------
 To actually use the OpenMP support, you need to tell the C or C++ compiler to
 enable OpenMP. For gcc this can be done as follows in a setup.py::
 
@@ -183,7 +185,7 @@ enable OpenMP. For gcc this can be done as follows in a setup.py::
     )
 
 Breaking out of loops
-=====================
+---------------------
 The parallel with and prange blocks support the statements break, continue and
 return in nogil mode. Additionally, it is valid to use a ``with gil`` block
 inside these blocks, and have exceptions propagate from them.
@@ -211,8 +213,8 @@ particular order::
 In the example above it is undefined whether an exception shall be raised,
 whether it will simply break or whether it will return 2.
 
-Using OpenMP Functions
-======================
+Using OpenMP functions
+----------------------
 OpenMP functions can be used by cimporting ``openmp``::
 
     from cython.parallel cimport parallel
@@ -224,6 +226,106 @@ OpenMP functions can be used by cimporting ``openmp``::
     with nogil, parallel():
         num_threads = openmp.omp_get_num_threads()
         ...
+
+
+Cilk Plus
+=========
+
+The module :py:mod:`cython.parallel.cilk` enables task parallel programming
+with Cilk Plus, an extension to C and C++ from Intel.
+
+Cilk Plus allows the programmer to "spawn" a function rather than call it,
+which means the function *may* be executed in parallel to the rest of the
+function body.
+Spawns behave like function calls in that a function does not return
+until all its spawns have completed,
+so parallelism is restricted to within a function.
+However, Cilk Plus parallelism is allowed to be nested,
+so it's possible to implement parallel divide-and-conquer algorithms
+(for parallel sorting, FFT, matrix multiplication, etc.).
+
+.. note::
+    Cilk Plus support currently requires compiling in C++ mode, i.e.,
+    ``cython --cplus``.
+
+.. function:: spawn(function)
+
+    This (pseudo-)function can be used to "spawn", or "fork off", a function
+    call, in parallel to the caller.
+    The full call syntax is::
+
+        spawn(function)(arg1, arg2, ...)
+
+    to call ``function(arg1, arg2, ...)`` in parallel.
+    ``function`` must be a ``cdef``, ``nogil`` function.
+
+    A call to ``spawn`` compiles to a ``_Cilk_spawn`` keyword in C/C++.
+    The places where a spawn may occur are limited by the Cilk Plus definition;
+
+    ::
+        cdef int i = spawn(f)(x, y)
+
+    is fine, but
+
+    ::
+        f(spawn(g)(x), y)
+
+    is not.
+
+.. function:: sync
+
+    Wait for all spawned function calls in the current function execution to
+    terminate. This is not a function, but a statement; the usage is simply::
+
+        sync
+
+    without arguments or even parentheses.
+
+    This corresponds to a ``_Cilk_sync`` statement in the generated code.
+
+Example::
+
+    cimport cilk
+
+    # Parallel quicksort (with naive pivot selection)
+    cdef quicksort(int[::1] a):
+        cdef Py_ssize_t pivot = a[0]
+
+        pivot = partition(a, pivot)
+
+        cilk.spawn(quicksort)(a[:pivot])
+        quicksort(a[pivot+1:])
+
+(Note that the second recursive invocation need not be spawned,
+since it's already running in parallel with the first.
+There's also no need for an explicit ``sync``.)
+
+Function spawns can return values as well, so you can write code like::
+
+    cdef double parallel_f(double x):
+        cdef double y = cilk.spawn(g)(x)
+        cdef double z = h(x)
+        cilk.sync
+        return y + z
+
+This function calls ``g`` and ``h`` in parallel, then waits for both to return
+before it combines their results.
+You should not use ``y`` or ``z`` before the ``sync``.
+It's possible, but not advised, to also ``spawn`` the call to ``h``;
+doing so just before a ``sync`` only causes overhead.
+
+Compiling Cilk Plus code
+------------------------
+
+Cilk Plus is supported by GCC as of version 4.7 or later,
+and by the Intel C Compiler.
+Both require the ``-fcilkplus`` argument to both compiler and linker.
+An experimental Clang with Cilk Plus support is apparently in the works.
+
+Unlike OpenMP code, Cilk Plus code
+*cannot be compiled* by a compiler that does not support it
+(or that does not have Cilk Plus enabled).
+
 
 .. rubric:: References
 
