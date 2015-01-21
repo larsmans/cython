@@ -2130,10 +2130,7 @@ class OptimizeBuiltinCalls(Visitor.NodeRefCleanupMixin,
         arg = pos_args[0]
         if arg.type is Builtin.tuple_type and not arg.may_be_none():
             return arg
-        if arg.type is Builtin.list_type:
-            pos_args[0] = arg.as_none_safe_node(
-                "'NoneType' object is not iterable")
-
+        if arg.type is Builtin.list_type and not arg.may_be_none():
             return ExprNodes.PythonCapiCallNode(
                 node.pos, "PyList_AsTuple", self.PyList_AsTuple_func_type,
                 args=pos_args, is_temp=node.is_temp)
